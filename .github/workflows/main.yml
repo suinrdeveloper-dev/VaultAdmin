@@ -1,60 +1,65 @@
-name: Android Build (Emergency Mode)
+name: Android Build (Auto-Fix Mode)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build-no-wrapper:
+  build-fix:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      # 1. Code Checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Java Setup
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3. Gradle Setup (CRITICAL STEP)
-      # Hum yahan 'gradle' tool setup kar rahe hain, wrapper nahi.
-      # Version '8.2' set kiya hai taaki compatibility bani rahe.
       - name: Setup Global Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
-      # 4. Build Command (Direct Gradle)
-      # Notice karo: Humne './gradlew' ko hata kar sirf 'gradle' likha hai.
-      # Ye command server ke tool ko use karega, file ko nahi.
+      # ========================================================
+      # 🛠️ STEP 4: AUTO-FIX GRADLE PROPERTIES (MAGIC STEP)
+      # Ye step 'gradle.properties' file create karega aur
+      # AndroidX enable karega taki build crash na ho.
+      # ========================================================
+      - name: 🔧 Inject AndroidX Properties
+        run: |
+          echo "Injecting AndroidX settings..."
+          
+          # Ye file create/append karega
+          echo "android.useAndroidX=true" >> gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+          
+          # Ye wo warning hatayega jo logs me dikh raha tha (compileSdk 34)
+          echo "android.suppressUnsupportedCompileSdk=34" >> gradle.properties
+          
+          echo "✅ gradle.properties updated:"
+          cat gradle.properties
+
       - name: Build Debug APK
         id: buildCmd
         run: |
-          echo "🚀 Starting build using Global Gradle..."
+          echo "🚀 Starting build..."
           set -o pipefail
           
-          # Command change: './gradlew' -> 'gradle'
+          # Direct Gradle use kar rahe hain
           gradle assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
 
-      # 5. Smart Error Trap (Wahi purana logic, jo ab kaam karega)
       - name: 🚨 Show Me The Error
         if: failure()
         run: |
           echo "::error::🛑 BUILD FAILED! Log Analysis:"
           echo "=================================================="
-          
           if [ -f "build.log" ]; then
-             # Ab hum specific errors dhundenge jo code se related hon
              grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:|Unresolved reference" build.log
-          else
-             echo "Log file nahi mili. System crash hua hai."
           fi
           echo "=================================================="
 
-      # 6. Artifact Upload
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
