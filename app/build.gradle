@@ -1,7 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.devtools.ksp' // Room Database के लिए जरूरी
+    id 'com.google.devtools.ksp'
     id 'org.jetbrains.kotlin.plugin.serialization'
 }
 
@@ -15,6 +15,22 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // 👇 YAHAN HAI ASLI MAGIC FIX (JAVA 17) 👇
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    // 👆 Fix Ends Here 👆
+
+    buildFeatures {
+        viewBinding true // Agar UI ke liye ViewBinding chahiye to
     }
 }
 
