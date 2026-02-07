@@ -1,101 +1,63 @@
-name: 🕵️ Smart Error Scanner (Auto-Detect)
+name: 🕵️ Forensic Log Extractor
 
 on: [push, workflow_dispatch]
 
 jobs:
-  smart-scan:
-    name: 🔍 Auto-Detect & Scan
+  forensic-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      # 1. Code Checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Setup Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3. Setup Global Gradle (Just in case wrapper is missing)
-      - name: Setup Gradle Tool
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
       # ========================================================
-      # 🧠 SMART EXECUTION STEP (The Fix)
-      # Ye step khud faisla karega ki kaise run karna hai
+      # 🚀 STEP: RUN & CAPTURE
+      # Hum 'assembleDebug' chala rahe hain taki Manifest errors bhi pakad me aayein.
+      # Output ko 'full_log.txt' me save kar rahe hain.
       # ========================================================
-      - name: 🚀 Locate & Scan Code
-        id: scanner
+      - name: 🚀 Run Build & Capture
         run: |
-          echo "🔍 Searching for build system..."
-          set -o pipefail
+          echo "Running Forensic Build..."
+          # Error aane par bhi script nahi rukegi (|| true)
+          gradle assembleDebug --no-daemon --stacktrace --console=plain > full_log.txt 2>&1 || true
 
-          # Step A: gradlew file dhundo
-          GRADLE_PATH=$(find . -name "gradlew" -type f | head -n 1)
-
-          if [ -n "$GRADLE_PATH" ]; then
-              echo "✅ Wrapper FOUND at: $GRADLE_PATH"
-              chmod +x "$GRADLE_PATH"
-              
-              # Wrapper use karke scan karo
-              echo "🚀 Running Scan using Wrapper..."
-              "$GRADLE_PATH" compileDebugSources --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
+      # ========================================================
+      # 🔍 STEP: EXTRACT THE REAL ERROR
+      # Ye step log file ke andar ghus kar sirf 'FAILURE' wala hissa nikalega.
+      # ========================================================
+      - name: 🛑 SHOW ME THE REAL REASON
+        run: |
+          echo "=================================================="
+          echo "🔍 EXTRACTED FAILURE LOG (Head of the Snake)"
+          echo "=================================================="
+          
+          # Strategy 1: "What went wrong" dhundo
+          if grep -q "What went wrong:" full_log.txt; then
+             # 'What went wrong' milne par uske niche ki 30 lines dikhao
+             grep -A 30 "What went wrong:" full_log.txt
+          
+          # Strategy 2: Agar wo nahi mila, to "FAILURE:" dhundo
+          elif grep -q "FAILURE:" full_log.txt; then
+             # FAILURE se pehle ki 10 aur baad ki 50 lines dikhao
+             grep -B 10 -A 50 "FAILURE:" full_log.txt
+          
+          # Strategy 3: Kotlin error
+          elif grep -q "e: " full_log.txt; then
+             grep -E "e: .*kt: " full_log.txt
           
           else
-              echo "⚠️ Wrapper NOT FOUND. Switching to Global Gradle..."
-              
-              # Global Gradle use karke scan karo
-              echo "🚀 Running Scan using Global Gradle..."
-              gradle compileDebugSources --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
+             echo "⚠️ Could not auto-extract. Printing last 100 lines..."
+             tail -n 100 full_log.txt
           fi
-
-      # ========================================================
-      # 🛑 ERROR REPORTER (Result dikhane wala step)
-      # ========================================================
-      - name: 📋 DISPLAY ERRORS
-        run: |
-          echo "::group::📂 RAW LOGS (Click to see full details)"
-          cat error_log.txt
-          echo "::endgroup::"
-
-          echo ""
-          echo "========================================================"
-          echo "🚩 FINAL DIAGNOSTIC REPORT"
-          echo "========================================================"
-
-          # 1. Check for KOTLIN Syntax Errors
-          if grep -q "e: " error_log.txt; then
-             echo "❌ CODE ERROR FOUND (File & Line):"
-             # Sirf 'e:' wali lines nikalo jo file path dikhati hain
-             grep -E "e: .*kt: " error_log.txt
-             echo "----------------------------------------"
-             echo "Details:"
-             grep -A 1 "e: " error_log.txt | head -n 20
           
-          # 2. Check for XML Layout Errors
-          elif grep -q "Error:.*xml" error_log.txt; then
-             echo "❌ XML LAYOUT ERROR FOUND:"
-             grep -E "Error:.*xml" error_log.txt
-
-          # 3. Check for Dependency Errors
-          elif grep -q "Could not resolve" error_log.txt; then
-             echo "❌ MISSING LIBRARY/DEPENDENCY:"
-             grep "Could not resolve" error_log.txt | head -n 5
-
-          # 4. Success Check
-          elif grep -q "BUILD SUCCESSFUL" error_log.txt; then
-             echo "🟢 CONGRATULATIONS! NO SYNTAX ERRORS FOUND."
-             echo "Aapka code compile hone ke liye taiyar hai."
-          
-          else
-             echo "⚠️ UNKNOWN ERROR. Please check Raw Logs above."
-             tail -n 20 error_log.txt
-          fi
-          echo "========================================================"
-
+          echo "=================================================="
