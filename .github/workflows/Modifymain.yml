@@ -1,0 +1,33 @@
+name: Android CI (Clean Error)
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          # 'setup-java' automatically matches errors and annotates them!
+          
+      - name: Build Debug APK
+        # '2>&1' stderr ko stdout me milata hai taki grep pakad sake
+        # Hum logs ko clean kar rahe hain taki tum phone pe scroll kar sako
+        run: ./gradlew assembleDebug --console=plain --no-daemon --stacktrace | grep -E "e: |ERROR|FAILED" -A 10
+        continue-on-error: true # Isse hum agle step me custom message dikha payenge
+
+      # Asli build command (jo artifacts upload karega)
+      - name: Final Build & Upload
+        run: ./gradlew assembleDebug --console=plain
+        
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
