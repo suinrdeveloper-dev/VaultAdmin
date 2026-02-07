@@ -1,107 +1,101 @@
-name: 🕵️ Universal Error Finder
+name: 🕵️ Smart Error Scanner (Auto-Detect)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  scan-code:
-    name: 🔍 Scan All Files
+  smart-scan:
+    name: 🔍 Auto-Detect & Scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      # 1. Code Download
+      # 1. Code Checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 2. Setup Environment (Java 17 Fixed)
+      # 2. Setup Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
 
-      # 3. Gradle Setup
-      - name: Setup Gradle
+      # 3. Setup Global Gradle (Just in case wrapper is missing)
+      - name: Setup Gradle Tool
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
-      # 4. Permissions Fix
-      - name: Fix Permissions
-        run: chmod +x gradlew
-
       # ========================================================
-      # 🚀 STEP 5: THE COMPILER RUN (No APK, Just Code Check)
-      # Hum 'assembleDebug' nahi, balki 'compileDebugSources' chala rahe hain.
-      # Ye bahut fast hota hai aur sirf SYNTAX ERROR dhundta hai.
+      # 🧠 SMART EXECUTION STEP (The Fix)
+      # Ye step khud faisla karega ki kaise run karna hai
       # ========================================================
-      - name: 🔍 Run Code Analysis
+      - name: 🚀 Locate & Scan Code
         id: scanner
         run: |
-          echo "🚀 Scanning Project for Errors..."
+          echo "🔍 Searching for build system..."
           set -o pipefail
+
+          # Step A: gradlew file dhundo
+          GRADLE_PATH=$(find . -name "gradlew" -type f | head -n 1)
+
+          if [ -n "$GRADLE_PATH" ]; then
+              echo "✅ Wrapper FOUND at: $GRADLE_PATH"
+              chmod +x "$GRADLE_PATH"
+              
+              # Wrapper use karke scan karo
+              echo "🚀 Running Scan using Wrapper..."
+              "$GRADLE_PATH" compileDebugSources --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
           
-          # Hum output ko 'error_log.txt' me save karenge
-          # --quiet: Faltu info hatata hai
-          # --stacktrace: Error ki detail deta hai
-          ./gradlew compileDebugSources compileDebugKotlin --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
+          else
+              echo "⚠️ Wrapper NOT FOUND. Switching to Global Gradle..."
+              
+              # Global Gradle use karke scan karo
+              echo "🚀 Running Scan using Global Gradle..."
+              gradle compileDebugSources --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
+          fi
 
       # ========================================================
-      # 🚨 STEP 6: ERROR EXTRACTOR (Magic Step)
-      # Ye step log file ko padhkar sundar tarike se error dikhayega
+      # 🛑 ERROR REPORTER (Result dikhane wala step)
       # ========================================================
-      - name: 🛑 SHOW ME THE ERRORS
+      - name: 📋 DISPLAY ERRORS
         run: |
-          echo "::group::📂 FULL LOGS (Click to Open)"
+          echo "::group::📂 RAW LOGS (Click to see full details)"
           cat error_log.txt
           echo "::endgroup::"
 
           echo ""
           echo "========================================================"
-          echo "🚩 ERROR REPORT (Sirf Kaam ki Baat)"
+          echo "🚩 FINAL DIAGNOSTIC REPORT"
           echo "========================================================"
 
-          # 1. KOTLIN/JAVA ERRORS (Syntax, Imports, Variables)
-          # Pattern: "e: /path/to/File.kt: (Line, Col): Error Message"
+          # 1. Check for KOTLIN Syntax Errors
           if grep -q "e: " error_log.txt; then
-             echo "❌ CODE ERRORS FOUND:"
-             # Ye command sirf 'e:' wali lines aur file names nikalegi
-             grep -E "e: .*kt: |e: .*java: " error_log.txt
+             echo "❌ CODE ERROR FOUND (File & Line):"
+             # Sirf 'e:' wali lines nikalo jo file path dikhati hain
+             grep -E "e: .*kt: " error_log.txt
              echo "----------------------------------------"
-             # Thoda aur detail (context)
-             grep -A 2 "e: " error_log.txt
-          else
-             echo "✅ No Kotlin/Java Syntax Errors found."
-          fi
-
-          echo ""
-          echo "========================================================"
-
-          # 2. XML/LAYOUT ERRORS (Resources, IDs)
-          # Pattern: "Error: ... .xml"
-          if grep -q ".xml" error_log.txt; then
-             echo "❌ XML/LAYOUT ERRORS FOUND:"
-             grep -E "Error:.*xml|Resource.*failed" error_log.txt
-          else
-             echo "✅ No XML Layout Errors found."
-          fi
-
-          echo ""
-          echo "========================================================"
-
-          # 3. DEPENDENCY/GRADLE ERRORS
-          if grep -q "Could not resolve" error_log.txt; then
-             echo "❌ DEPENDENCY MISSING:"
-             grep "Could not resolve" error_log.txt
-          fi
+             echo "Details:"
+             grep -A 1 "e: " error_log.txt | head -n 20
           
-          # 4. CHECK IF BUILD FAILED
-          if grep -q "BUILD FAILED" error_log.txt; then
-             echo "🔴 STATUS: BUILD FAILED"
-             echo "Asli wajah niche dekhein 👇"
-             grep -A 5 "What went wrong:" error_log.txt || grep -A 10 "FAILURE:" error_log.txt
-             exit 1
+          # 2. Check for XML Layout Errors
+          elif grep -q "Error:.*xml" error_log.txt; then
+             echo "❌ XML LAYOUT ERROR FOUND:"
+             grep -E "Error:.*xml" error_log.txt
+
+          # 3. Check for Dependency Errors
+          elif grep -q "Could not resolve" error_log.txt; then
+             echo "❌ MISSING LIBRARY/DEPENDENCY:"
+             grep "Could not resolve" error_log.txt | head -n 5
+
+          # 4. Success Check
+          elif grep -q "BUILD SUCCESSFUL" error_log.txt; then
+             echo "🟢 CONGRATULATIONS! NO SYNTAX ERRORS FOUND."
+             echo "Aapka code compile hone ke liye taiyar hai."
+          
           else
-             echo "🟢 STATUS: ALL CLEAR! (Code Sahi Hai)"
+             echo "⚠️ UNKNOWN ERROR. Please check Raw Logs above."
+             tail -n 20 error_log.txt
           fi
+          echo "========================================================"
+
