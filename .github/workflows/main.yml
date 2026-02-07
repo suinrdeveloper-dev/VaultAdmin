@@ -1,63 +1,71 @@
-name: 🕵️ Forensic Log Extractor
+name: Android Builder (Auto-Config)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  forensic-scan:
+  build-apk:
+    name: 🏗️ Fix Config & Build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
     steps:
+      # 1. Code Checkout
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 2. Setup Java 17 (Required for your code)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      # 3. Setup Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
       # ========================================================
-      # 🚀 STEP: RUN & CAPTURE
-      # Hum 'assembleDebug' chala rahe hain taki Manifest errors bhi pakad me aayein.
-      # Output ko 'full_log.txt' me save kar rahe hain.
+      # 🛠️ STEP 4: THE FIX (Config Injection)
+      # Ye step wo file banayega jo MISSING thi.
       # ========================================================
-      - name: 🚀 Run Build & Capture
+      - name: 🔧 Generate gradle.properties
         run: |
-          echo "Running Forensic Build..."
-          # Error aane par bhi script nahi rukegi (|| true)
-          gradle assembleDebug --no-daemon --stacktrace --console=plain > full_log.txt 2>&1 || true
+          echo "Generating configuration file..."
+          
+          # 1. Enable AndroidX (Jo Error maang raha tha)
+          echo "android.useAndroidX=true" > gradle.properties
+          
+          # 2. Enable Jetifier (Purani libs ko naye me badalne ke liye)
+          echo "android.enableJetifier=true" >> gradle.properties
+          
+          # 3. Memory Settings (Crash rokne ke liye)
+          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=512m" >> gradle.properties
+          
+          # 4. Kotlin Style
+          echo "kotlin.code.style=official" >> gradle.properties
+          
+          echo "✅ Configuration Fixed:"
+          cat gradle.properties
 
       # ========================================================
-      # 🔍 STEP: EXTRACT THE REAL ERROR
-      # Ye step log file ke andar ghus kar sirf 'FAILURE' wala hissa nikalega.
+      # 🚀 STEP 5: BUILD APK
+      # Ab ye fail nahi hona chahiye
       # ========================================================
-      - name: 🛑 SHOW ME THE REAL REASON
+      - name: 🚀 Build Debug APK
+        id: buildCmd
         run: |
-          echo "=================================================="
-          echo "🔍 EXTRACTED FAILURE LOG (Head of the Snake)"
-          echo "=================================================="
-          
-          # Strategy 1: "What went wrong" dhundo
-          if grep -q "What went wrong:" full_log.txt; then
-             # 'What went wrong' milne par uske niche ki 30 lines dikhao
-             grep -A 30 "What went wrong:" full_log.txt
-          
-          # Strategy 2: Agar wo nahi mila, to "FAILURE:" dhundo
-          elif grep -q "FAILURE:" full_log.txt; then
-             # FAILURE se pehle ki 10 aur baad ki 50 lines dikhao
-             grep -B 10 -A 50 "FAILURE:" full_log.txt
-          
-          # Strategy 3: Kotlin error
-          elif grep -q "e: " full_log.txt; then
-             grep -E "e: .*kt: " full_log.txt
-          
-          else
-             echo "⚠️ Could not auto-extract. Printing last 100 lines..."
-             tail -n 100 full_log.txt
-          fi
-          
-          echo "=================================================="
+          echo "🚀 Building APK..."
+          # '--no-daemon' memory bachata hai
+          gradle assembleDebug --no-daemon --stacktrace --console=plain
+
+      # ========================================================
+      # 📦 STEP 6: UPLOAD ARTIFACT
+      # ========================================================
+      - name: 📤 Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vault-receiver-debug
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 3
