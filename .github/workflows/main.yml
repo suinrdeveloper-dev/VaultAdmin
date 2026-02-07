@@ -1,45 +1,107 @@
-name: Android Raw Logger (Final Debug)
+name: 🕵️ Universal Error Finder
 
 on: [push, workflow_dispatch]
 
 jobs:
-  raw-debug:
+  scan-code:
+    name: 🔍 Scan All Files
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
+      # 1. Code Download
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 2. Setup Environment (Java 17 Fixed)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
+      # 3. Gradle Setup
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
 
-      # 🏗️ BUILD STEP (Output to file)
-      - name: 🚀 Build Debug APK
-        id: buildCmd
-        run: |
-          echo "Starting Build..."
-          # Error ko ignore karne ke liye '|| true' lagaya hai
-          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log || true
+      # 4. Permissions Fix
+      - name: Fix Permissions
+        run: chmod +x gradlew
 
-      # 📄 SHOW FULL LOG (No Filtering)
-      # Ye step fail nahi hoga. Pura chittha khol dega.
-      - name: 📜 Display Full Failure Log
-        if: failure() || success() 
+      # ========================================================
+      # 🚀 STEP 5: THE COMPILER RUN (No APK, Just Code Check)
+      # Hum 'assembleDebug' nahi, balki 'compileDebugSources' chala rahe hain.
+      # Ye bahut fast hota hai aur sirf SYNTAX ERROR dhundta hai.
+      # ========================================================
+      - name: 🔍 Run Code Analysis
+        id: scanner
         run: |
-          echo "::group::🔎 OPEN THIS TO SEE FULL LOGS"
-          cat build.log
-          echo "::endgroup::"
+          echo "🚀 Scanning Project for Errors..."
+          set -o pipefail
           
-          echo "=================================================="
-          echo "👇 FAILURE REASON (Last 50 Lines) 👇"
-          echo "=================================================="
-          tail -n 50 build.log
-          echo "=================================================="
+          # Hum output ko 'error_log.txt' me save karenge
+          # --quiet: Faltu info hatata hai
+          # --stacktrace: Error ki detail deta hai
+          ./gradlew compileDebugSources compileDebugKotlin --no-daemon --stacktrace --console=plain > error_log.txt 2>&1 || true
 
+      # ========================================================
+      # 🚨 STEP 6: ERROR EXTRACTOR (Magic Step)
+      # Ye step log file ko padhkar sundar tarike se error dikhayega
+      # ========================================================
+      - name: 🛑 SHOW ME THE ERRORS
+        run: |
+          echo "::group::📂 FULL LOGS (Click to Open)"
+          cat error_log.txt
+          echo "::endgroup::"
+
+          echo ""
+          echo "========================================================"
+          echo "🚩 ERROR REPORT (Sirf Kaam ki Baat)"
+          echo "========================================================"
+
+          # 1. KOTLIN/JAVA ERRORS (Syntax, Imports, Variables)
+          # Pattern: "e: /path/to/File.kt: (Line, Col): Error Message"
+          if grep -q "e: " error_log.txt; then
+             echo "❌ CODE ERRORS FOUND:"
+             # Ye command sirf 'e:' wali lines aur file names nikalegi
+             grep -E "e: .*kt: |e: .*java: " error_log.txt
+             echo "----------------------------------------"
+             # Thoda aur detail (context)
+             grep -A 2 "e: " error_log.txt
+          else
+             echo "✅ No Kotlin/Java Syntax Errors found."
+          fi
+
+          echo ""
+          echo "========================================================"
+
+          # 2. XML/LAYOUT ERRORS (Resources, IDs)
+          # Pattern: "Error: ... .xml"
+          if grep -q ".xml" error_log.txt; then
+             echo "❌ XML/LAYOUT ERRORS FOUND:"
+             grep -E "Error:.*xml|Resource.*failed" error_log.txt
+          else
+             echo "✅ No XML Layout Errors found."
+          fi
+
+          echo ""
+          echo "========================================================"
+
+          # 3. DEPENDENCY/GRADLE ERRORS
+          if grep -q "Could not resolve" error_log.txt; then
+             echo "❌ DEPENDENCY MISSING:"
+             grep "Could not resolve" error_log.txt
+          fi
+          
+          # 4. CHECK IF BUILD FAILED
+          if grep -q "BUILD FAILED" error_log.txt; then
+             echo "🔴 STATUS: BUILD FAILED"
+             echo "Asli wajah niche dekhein 👇"
+             grep -A 5 "What went wrong:" error_log.txt || grep -A 10 "FAILURE:" error_log.txt
+             exit 1
+          else
+             echo "🟢 STATUS: ALL CLEAR! (Code Sahi Hai)"
+          fi
