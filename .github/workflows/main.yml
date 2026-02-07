@@ -1,9 +1,9 @@
-name: Android Fix (Version 17)
+name: Android Spy Build (Debug Mode)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  fix-and-build:
+  debug-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -17,59 +17,63 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Global Gradle
+      # Gradle Setup with Build Scan Auto-Accept
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.2'
+          build-scan-publish: true
+          build-scan-terms-of-use-url: "https://gradle.com/terms-of-service"
+          build-scan-terms-of-use-agree: "yes"
 
-      # ========================================================
-      # 🛠️ STEP: FORCE UPDATE TO JAVA 17 (The Fix)
-      # Ye command pure project me 'Java 1.8' ko dhund kar 'Java 17' kar dega.
-      # Chahe wo Groovy ho (.gradle) ya Kotlin DSL (.kts).
-      # ========================================================
-      - name: 🔧 Upgrade Java Version to 17
+      # 🛠️ Fix Java Version & Memory (Zabardasti 17 set karna)
+      - name: 🔧 Force Java 17 & Fix Memory
         run: |
-          echo "🔄 Updating Java Compatibility to 17..."
+          # Memory Badhao
+          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
           
-          # Strategy: 'find' command se sari gradle files dhundo aur 'sed' se replace karo
-          
-          # 1. Replace 'JavaVersion.VERSION_1_8' with 'JavaVersion.VERSION_17'
+          # Java 17 Force karo (Files replace karke)
           find . -type f -name "*build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
-          
-          # 2. Replace string "1.8" with "17" (Common in KotlinOptions)
-          find . -type f -name "*build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
           find . -type f -name "*build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
           
-          echo "✅ Code updated to target Java 17."
+          echo "✅ Config updated."
 
-      # Pichla fix bhi zaruri hai (AndroidX & Memory)
-      - name: 🔧 Inject System Properties
-        run: |
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
-
-      # BUILD COMMAND
-      - name: 🏗️ Build APK
+      # 🏗️ Build Command
+      - name: 🚀 Build Debug APK
         id: buildCmd
         run: |
-          echo "🚀 Building with unified Java 17..."
           set -o pipefail
-          
-          # Ab build clean hona chahiye
-          gradle assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
+          echo "Starting Build..."
+          # Log file save kar rahe hain
+          gradle assembleDebug --no-daemon --scan --stacktrace 2>&1 | tee build.log
+        continue-on-error: true # Fail hone par bhi agla step chalega
 
-      # ERROR TRAP (Agar ab bhi kuch phata to)
-      - name: 🚨 Show Me The Error
-        if: failure()
+      # 🕵️ JASOOS STEP (Sirf Error Dhundega)
+      - name: 🔍 Kahan Hai Error?
+        if: steps.buildCmd.outcome == 'failure'
         run: |
-          echo "::error::🛑 BUILD FAILED! Analysis:"
-          if [ -f "build.log" ]; then
-             grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:" build.log
-          fi
+          echo "::error::🛑 BUILD FAIL HUA HAI! Niche dekho galti kahan hai:"
+          echo "=========================================================="
+          
+          # 1. Sirf FILE NAMES aur ERROR lines dhundo
+          # Ye command log me se wo line nikalegi jo 'e:' se shuru hoti hai (Kotlin Errors)
+          grep -E "e: .*kt: \(" build.log || echo "Kotlin Syntax Error nahi mila."
+          
+          echo "----------------------------------------------------------"
+          
+          # 2. Agar XML error hai (Layout files)
+          grep -E "Error:.*xml" build.log || echo "XML Error nahi mila."
+          
+          echo "----------------------------------------------------------"
+          
+          # 3. Agar Generic Error hai
+          grep -C 2 "FAILED" build.log
+          
+          echo "=========================================================="
+          exit 1 # GitHub ko batao ki fail hua hai
 
-      - name: 📦 Upload APK
-        if: success()
+      - name: 📦 Upload APK (Success Only)
+        if: steps.buildCmd.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
