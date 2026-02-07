@@ -1,9 +1,9 @@
-name: Android Auto-Upgrade (Fix All)
+name: Android "God Mode" Build
 
 on: [push, workflow_dispatch]
 
 jobs:
-  fix-and-build:
+  override-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -23,86 +23,89 @@ jobs:
           gradle-version: '8.2'
 
       # ========================================================
-      # 🛠️ STEP 1: FORCE SDK UPGRADE (SDK 33 -> 34)
-      # Ye sabse important fix hai. Hum purane SDK version ko
-      # hatakar zabardasti '34' likh denge.
+      # 🛠️ STEP: CREATE GOD MODE SCRIPT (init.gradle)
+      # Ye script build process ko hijack karke Java 17 force karegi.
+      # Chahe file me kuch bhi likha ho, ye usko overwrite kar dega.
       # ========================================================
-      - name: 🔧 Force Upgrade SDK & Java
+      - name: 📝 Create Init Script
         run: |
-          echo "🔄 Upgrading Project Configuration..."
-
-          # 1. Update SDK Versions (compileSdk 34)
-          # Ye command 'compileSdk 33' (ya koi bhi number) ko 'compileSdk 34' bana dega
-          find . -name "build.gradle*" -exec sed -i -E 's/compileSdk[[:space:]]*[0-9]+/compileSdk 34/g' {} +
-          find . -name "build.gradle*" -exec sed -i -E 's/compileSdkVersion[[:space:]]*[0-9]+/compileSdkVersion 34/g' {} +
+          cat <<EOF > init.gradle
+          allprojects {
+              afterEvaluate { project ->
+                  // 1. Force Android Compile Options to Java 17
+                  if (project.hasProperty("android")) {
+                      project.android {
+                          compileOptions {
+                              sourceCompatibility = JavaVersion.VERSION_17
+                              targetCompatibility = JavaVersion.VERSION_17
+                          }
+                      }
+                  }
+                  // 2. Force Kotlin Options to Java 17
+                  project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                      kotlinOptions {
+                          jvmTarget = "17"
+                      }
+                  }
+              }
+          }
+          EOF
           
-          # 2. Update Target SDK (targetSdk 34)
-          find . -name "build.gradle*" -exec sed -i -E 's/targetSdk[[:space:]]*[0-9]+/targetSdk 34/g' {} +
-          find . -name "build.gradle*" -exec sed -i -E 's/targetSdkVersion[[:space:]]*[0-9]+/targetSdkVersion 34/g' {} +
-
-          # 3. Update Java Version (Java 1.8 -> 17)
-          find . -name "build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
-          find . -name "build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
-          find . -name "build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
-
-          echo "✅ Project files updated to SDK 34 & Java 17."
+          echo "✅ Init script created. Java 17 will be enforced."
 
       # ========================================================
-      # 🛠️ STEP 2: INJECT PROPERTIES (AndroidX & Memory)
+      # 🔧 PROPERTIES INJECTION (AndroidX & Memory)
       # ========================================================
       - name: 🔧 Inject System Properties
         run: |
-          # AndroidX Enable karo
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          
-          # Warning Hatao (Kyunki hum zabardasti 34 use kar rahe hain)
-          echo "android.suppressUnsupportedCompileSdk=34" >> gradle.properties
-          
-          # Memory Badhao (Crash rokne ke liye)
           echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
+          # SDK Version warning suppression
+          echo "android.suppressUnsupportedCompileSdk=34" >> gradle.properties
 
       # ========================================================
-      # 🏗️ BUILD COMMAND
+      # 🏗️ BUILD COMMAND (With Injection)
+      # Notice the '-I init.gradle'. This activates the override.
       # ========================================================
       - name: 🚀 Build Debug APK
         id: buildCmd
         run: |
-          echo "Starting Build..."
+          echo "🚀 Starting God Mode Build..."
           set -o pipefail
-          # '--scan' link dega, 'tee' log save karega
-          gradle assembleDebug --no-daemon --scan --stacktrace 2>&1 | tee build.log
-        continue-on-error: true
+          
+          # '-I init.gradle' sabse zaroori hai yahan
+          gradle assembleDebug --no-daemon --stacktrace -I init.gradle 2>&1 | tee build.log
 
       # ========================================================
-      # 🚨 ERROR TRAP (Improved)
-      # Ab hum specifically 'Metadata' error dhundenge
+      # 🚨 ERROR TRAP (Precision Mode)
       # ========================================================
-      - name: 🔍 Check Specific Errors
-        if: steps.buildCmd.outcome == 'failure'
+      - name: 🔍 Diagnose Failure
+        if: failure()
         run: |
           echo "::error::🛑 BUILD FAIL! Checking Logs..."
           echo "=========================================================="
           
-          # 1. Check for Metadata/Version Issue (Jo abhi aaya tha)
-          if grep -q "checkDebugAarMetadata" build.log; then
-             echo "::error::⚠️ SDK Version Mismatch Detected!"
-             grep -C 10 "checkDebugAarMetadata" build.log
-             grep -C 5 "dependency's AAR metadata" build.log || echo ""
-          fi
+          # 1. Check for Java Mismatch (Should be gone now)
+          grep -C 2 "jvm target compatibility" build.log || echo "✅ Java Version Mismatch Fixed."
 
-          # 2. Check for Kotlin Code Errors
-          grep -E "e: .*kt: \(" build.log || echo "No Kotlin Syntax Errors."
+          # 2. Check for Kotlin Code Errors (Asli Galti)
+          if grep -q "e: file://" build.log; then
+              echo "::error::found CODE ERROR!"
+              grep -E "e: file://.*kt:" build.log
+          elif grep -q "e: " build.log; then
+               # Simple format
+               grep -E "e: .*kt: \(" build.log
+          fi
           
           # 3. Check for Generic Failure
           grep -C 5 "FAILURE: Build failed" build.log
-
           echo "=========================================================="
-          exit 1
 
-      - name: 📦 Upload APK (Success Only)
-        if: steps.buildCmd.outcome == 'success'
+      - name: 📦 Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
