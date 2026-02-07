@@ -1,9 +1,9 @@
-name: Android Full Diagnostic
+name: Android Fix (Version 17)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  debug-build:
+  fix-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -23,55 +23,53 @@ jobs:
           gradle-version: '8.2'
 
       # ========================================================
-      # STEP 1: FIX MEMORY & PROPERTIES (CRITICAL)
-      # Hum RAM badha rahe hain (3GB) taki build crash na ho.
+      # 🛠️ STEP: FORCE UPDATE TO JAVA 17 (The Fix)
+      # Ye command pure project me 'Java 1.8' ko dhund kar 'Java 17' kar dega.
+      # Chahe wo Groovy ho (.gradle) ya Kotlin DSL (.kts).
       # ========================================================
-      - name: 🔧 Tune System Performance
+      - name: 🔧 Upgrade Java Version to 17
         run: |
-          echo "Setting up optimized environment..."
+          echo "🔄 Updating Java Compatibility to 17..."
           
-          # Fix AndroidX config
+          # Strategy: 'find' command se sari gradle files dhundo aur 'sed' se replace karo
+          
+          # 1. Replace 'JavaVersion.VERSION_1_8' with 'JavaVersion.VERSION_17'
+          find . -type f -name "*build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+          
+          # 2. Replace string "1.8" with "17" (Common in KotlinOptions)
+          find . -type f -name "*build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
+          find . -type f -name "*build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
+          
+          echo "✅ Code updated to target Java 17."
+
+      # Pichla fix bhi zaruri hai (AndroidX & Memory)
+      - name: 🔧 Inject System Properties
+        run: |
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          
-          # Fix Memory (JVM Args) - Ye crash rokega
           echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
-          
-          # Print properties to check
-          echo "✅ gradle.properties content:"
-          cat gradle.properties
 
-      # ========================================================
-      # STEP 2: BUILD & CAPTURE FULL LOGS
-      # Hum 'grep' nahi use karenge. Pura log file me save karenge.
-      # ========================================================
-      - name: 🏗️ Run Build (Capture All Logs)
+      # BUILD COMMAND
+      - name: 🏗️ Build APK
         id: buildCmd
         run: |
-          echo "🚀 Starting Full Build..."
+          echo "🚀 Building with unified Java 17..."
           set -o pipefail
           
-          # Hum '--scan' use kar rahe hain jo web link dega
-          # Hum output ko 'build_output.txt' me bhej rahe hain
-          gradle assembleDebug --no-daemon --stacktrace --scan 2>&1 | tee build_output.txt
-        continue-on-error: true # Fail hone par bhi agla step chalega (taki log mile)
+          # Ab build clean hona chahiye
+          gradle assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
 
-      # ========================================================
-      # STEP 3: UPLOAD LOG FILE (MOST IMPORTANT)
-      # Build fail ho ya pass, ye file tumhe download karne ko milegi.
-      # ========================================================
-      - name: 📂 Upload Full Log File
-        uses: actions/upload-artifact@v4
-        with:
-          name: Full-Build-Log
-          path: build_output.txt
-          retention-days: 1
+      # ERROR TRAP (Agar ab bhi kuch phata to)
+      - name: 🚨 Show Me The Error
+        if: failure()
+        run: |
+          echo "::error::🛑 BUILD FAILED! Analysis:"
+          if [ -f "build.log" ]; then
+             grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:" build.log
+          fi
 
-      # ========================================================
-      # STEP 4: UPLOAD APK (Agar ban gaya toh)
-      # ========================================================
-      - name: 📦 Upload APK (If Success)
-        if: steps.buildCmd.outcome == 'success'
+      - name: 📦 Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
