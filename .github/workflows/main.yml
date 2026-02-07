@@ -1,11 +1,11 @@
-name: Android Build (Auto-Fix Mode)
+name: Android Full Diagnostic
 
 on: [push, workflow_dispatch]
 
 jobs:
-  build-fix:
+  debug-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Code
@@ -23,45 +23,55 @@ jobs:
           gradle-version: '8.2'
 
       # ========================================================
-      # 🛠️ STEP 4: AUTO-FIX GRADLE PROPERTIES (MAGIC STEP)
-      # Ye step 'gradle.properties' file create karega aur
-      # AndroidX enable karega taki build crash na ho.
+      # STEP 1: FIX MEMORY & PROPERTIES (CRITICAL)
+      # Hum RAM badha rahe hain (3GB) taki build crash na ho.
       # ========================================================
-      - name: 🔧 Inject AndroidX Properties
+      - name: 🔧 Tune System Performance
         run: |
-          echo "Injecting AndroidX settings..."
+          echo "Setting up optimized environment..."
           
-          # Ye file create/append karega
+          # Fix AndroidX config
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
           
-          # Ye wo warning hatayega jo logs me dikh raha tha (compileSdk 34)
-          echo "android.suppressUnsupportedCompileSdk=34" >> gradle.properties
+          # Fix Memory (JVM Args) - Ye crash rokega
+          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
           
-          echo "✅ gradle.properties updated:"
+          # Print properties to check
+          echo "✅ gradle.properties content:"
           cat gradle.properties
 
-      - name: Build Debug APK
+      # ========================================================
+      # STEP 2: BUILD & CAPTURE FULL LOGS
+      # Hum 'grep' nahi use karenge. Pura log file me save karenge.
+      # ========================================================
+      - name: 🏗️ Run Build (Capture All Logs)
         id: buildCmd
         run: |
-          echo "🚀 Starting build..."
+          echo "🚀 Starting Full Build..."
           set -o pipefail
           
-          # Direct Gradle use kar rahe hain
-          gradle assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
+          # Hum '--scan' use kar rahe hain jo web link dega
+          # Hum output ko 'build_output.txt' me bhej rahe hain
+          gradle assembleDebug --no-daemon --stacktrace --scan 2>&1 | tee build_output.txt
+        continue-on-error: true # Fail hone par bhi agla step chalega (taki log mile)
 
-      - name: 🚨 Show Me The Error
-        if: failure()
-        run: |
-          echo "::error::🛑 BUILD FAILED! Log Analysis:"
-          echo "=================================================="
-          if [ -f "build.log" ]; then
-             grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:|Unresolved reference" build.log
-          fi
-          echo "=================================================="
+      # ========================================================
+      # STEP 3: UPLOAD LOG FILE (MOST IMPORTANT)
+      # Build fail ho ya pass, ye file tumhe download karne ko milegi.
+      # ========================================================
+      - name: 📂 Upload Full Log File
+        uses: actions/upload-artifact@v4
+        with:
+          name: Full-Build-Log
+          path: build_output.txt
+          retention-days: 1
 
-      - name: Upload APK
-        if: success()
+      # ========================================================
+      # STEP 4: UPLOAD APK (Agar ban gaya toh)
+      # ========================================================
+      - name: 📦 Upload APK (If Success)
+        if: steps.buildCmd.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
