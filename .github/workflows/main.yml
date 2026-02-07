@@ -1,63 +1,70 @@
-name: Android CI (Smart Logs)
+name: Android Debugger (Fix Path)
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch: # Manually run karne ke liye
+on: [push, workflow_dispatch]
 
 jobs:
-  build:
-    name: Build & Debug
+  debug-structure:
     runs-on: ubuntu-latest
-    
-    # 15 min ka timeout, taki agar loop me fase to paise na katein
-    timeout-minutes: 15
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # STEP 1: Sabse Pehle File Structure Dekho
+      # Is step ka output check karna. Ye batayega gradlew kahan chupa hai.
+      - name: 📂 List All Files
+        run: |
+          echo "Current Directory: $(pwd)"
+          echo "Files in Root:"
+          ls -la
+          echo "======================="
+          echo "Searching for gradlew..."
+          find . -name "gradlew"
+          echo "======================="
+
+      # STEP 2: JDK Setup
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle' # Gradle cache ON (Build speed badhayega)
 
-      # Gradle Setup Action (v3) - Ye best practice hai caching ke liye
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: wrapper
-
-      - name: Make Gradle Executable
-        run: chmod +x gradlew
-
-      # MAIN BUILD STEP (Optimized)
-      # Hum 'tee' use kar rahe hain: Ye screen pe bhi dikhayega aur file me bhi save karega.
-      # 'set -o pipefail' ensure karta hai ki agar gradle fail ho, to script fail maani jaye.
-      - name: Build Debug APK
+      # STEP 3: Smart Execution (Automatic Discovery)
+      # Ye script khud dhundega ki gradlew kahan hai aur wahin se run karega.
+      - name: Build with Auto-Discovery
         id: buildCmd
         run: |
+          # Gradlew file dhundo
+          GRADLE_PATH=$(find . -name "gradlew" | head -n 1)
+
+          if [ -z "$GRADLE_PATH" ]; then
+            echo "::error::❌ CRITICAL: 'gradlew' file pure project me kahin nahi mili! Shayad wo commit nahi hui hai."
+            exit 1
+          fi
+
+          echo "✅ Found gradlew at: $GRADLE_PATH"
+          
+          # Uss folder me jao jahan gradlew hai
+          PROJECT_ROOT=$(dirname "$GRADLE_PATH")
+          cd "$PROJECT_ROOT"
+          
+          echo "📂 Changed directory to: $(pwd)"
+          
+          # Permissions do
+          chmod +x gradlew
+          
+          # Build chalao (Output capture ke sath)
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee build.log
+          ./gradlew assembleDebug --no-daemon --stacktrace --console=plain 2>&1 | tee ../build.log
+          # Note: '../build.log' isliye kiya taki log file root me save ho
 
-      # ERROR EXTRACTOR (Sirf tab chalega jab build FAIL hoga)
+      # STEP 4: Error Trap
       - name: 🚨 Show Me The Error
-        if: failure() # Critical: Ye step sirf failure par trigger hoga
+        if: failure()
         run: |
-          echo "::error::🛑 BUILD FAILED! Niche asli wajah dekhein:"
-          echo "=================================================="
-          # Ye command file me se 'ERROR', 'FAILED', ya 'Exception' wali lines dhundega
-          # '-C 5' ka matlab hai error ke upar aur niche ki 5 lines bhi dikhao (Context ke liye)
-          grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:" build.log
-          echo "=================================================="
-
-      # ARTIFACT UPLOAD (Sirf tab chalega jab build PASS hoga)
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 5
+          echo "::error::🛑 BUILD FAILED! Checking Logs..."
+          # Ab log file check karo (agar bani hai)
+          if [ -f "build.log" ]; then
+             grep -C 5 -E "e: |ERROR|FAILED|Exception|Caused by:" build.log
+          else
+             echo "Build log file nahi mili. Shayad build start hone se pehle hi crash ho gaya."
+          fi
