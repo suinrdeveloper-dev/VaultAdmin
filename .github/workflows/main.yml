@@ -1,12 +1,10 @@
-name: Android "God Mode" Build
+name: Android Raw Logger (Final Debug)
 
 on: [push, workflow_dispatch]
 
 jobs:
-  override-build:
+  raw-debug:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -22,90 +20,26 @@ jobs:
         with:
           gradle-version: '8.2'
 
-      # ========================================================
-      # 🛠️ STEP: CREATE GOD MODE SCRIPT (init.gradle)
-      # Ye script build process ko hijack karke Java 17 force karegi.
-      # Chahe file me kuch bhi likha ho, ye usko overwrite kar dega.
-      # ========================================================
-      - name: 📝 Create Init Script
-        run: |
-          cat <<EOF > init.gradle
-          allprojects {
-              afterEvaluate { project ->
-                  // 1. Force Android Compile Options to Java 17
-                  if (project.hasProperty("android")) {
-                      project.android {
-                          compileOptions {
-                              sourceCompatibility = JavaVersion.VERSION_17
-                              targetCompatibility = JavaVersion.VERSION_17
-                          }
-                      }
-                  }
-                  // 2. Force Kotlin Options to Java 17
-                  project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-                      kotlinOptions {
-                          jvmTarget = "17"
-                      }
-                  }
-              }
-          }
-          EOF
-          
-          echo "✅ Init script created. Java 17 will be enforced."
-
-      # ========================================================
-      # 🔧 PROPERTIES INJECTION (AndroidX & Memory)
-      # ========================================================
-      - name: 🔧 Inject System Properties
-        run: |
-          echo "android.useAndroidX=true" >> gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          echo "org.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1g" >> gradle.properties
-          # SDK Version warning suppression
-          echo "android.suppressUnsupportedCompileSdk=34" >> gradle.properties
-
-      # ========================================================
-      # 🏗️ BUILD COMMAND (With Injection)
-      # Notice the '-I init.gradle'. This activates the override.
-      # ========================================================
+      # 🏗️ BUILD STEP (Output to file)
       - name: 🚀 Build Debug APK
         id: buildCmd
         run: |
-          echo "🚀 Starting God Mode Build..."
-          set -o pipefail
-          
-          # '-I init.gradle' sabse zaroori hai yahan
-          gradle assembleDebug --no-daemon --stacktrace -I init.gradle 2>&1 | tee build.log
+          echo "Starting Build..."
+          # Error ko ignore karne ke liye '|| true' lagaya hai
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log || true
 
-      # ========================================================
-      # 🚨 ERROR TRAP (Precision Mode)
-      # ========================================================
-      - name: 🔍 Diagnose Failure
-        if: failure()
+      # 📄 SHOW FULL LOG (No Filtering)
+      # Ye step fail nahi hoga. Pura chittha khol dega.
+      - name: 📜 Display Full Failure Log
+        if: failure() || success() 
         run: |
-          echo "::error::🛑 BUILD FAIL! Checking Logs..."
-          echo "=========================================================="
+          echo "::group::🔎 OPEN THIS TO SEE FULL LOGS"
+          cat build.log
+          echo "::endgroup::"
           
-          # 1. Check for Java Mismatch (Should be gone now)
-          grep -C 2 "jvm target compatibility" build.log || echo "✅ Java Version Mismatch Fixed."
-
-          # 2. Check for Kotlin Code Errors (Asli Galti)
-          if grep -q "e: file://" build.log; then
-              echo "::error::found CODE ERROR!"
-              grep -E "e: file://.*kt:" build.log
-          elif grep -q "e: " build.log; then
-               # Simple format
-               grep -E "e: .*kt: \(" build.log
-          fi
-          
-          # 3. Check for Generic Failure
-          grep -C 5 "FAILURE: Build failed" build.log
-          echo "=========================================================="
-
-      - name: 📦 Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          echo "=================================================="
+          echo "👇 FAILURE REASON (Last 50 Lines) 👇"
+          echo "=================================================="
+          tail -n 50 build.log
+          echo "=================================================="
 
