@@ -1,55 +1,66 @@
+// 1. Chhota 'p' (Plugins -> plugins)
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-    id 'com.google.devtools.ksp'
     id 'org.jetbrains.kotlin.plugin.serialization'
 }
 
 android {
-    namespace 'com.admin.vault.receiver'
+    namespace 'com.android.service.system.core'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.admin.vault.receiver"
+        applicationId "com.android.service.system.core"
         minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0"
+
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // 👇 YAHAN HAI ASLI MAGIC FIX (JAVA 17) 👇
+    buildTypes {
+        release {
+            // 2. 🛑 FIX: Ise 'false' kar diya taki R8 crash na ho
+            minifyEnabled false
+            shrinkResources false
+            
+            // Ye line rahe ya na rahe, ab farq nahi padta kyunki minify OFF hai
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // 3. ✅ IMPORTANT: Debug key se sign karna zaruri hai
+            // Varna phone me install nahi hoga.
+            signingConfig signingConfigs.debug
+        }
+    }
+    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-
     kotlinOptions {
         jvmTarget = '17'
     }
-    // 👆 Fix Ends Here 👆
-
-    buildFeatures {
-        viewBinding true // Agar UI ke liye ViewBinding chahiye to
+    
+    packagingOptions {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
     }
 }
 
 dependencies {
-    // 1. Room Database (Offline Storage)
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
-
-    // 2. Supabase (Network)
-    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.0")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.0")
-    implementation("io.ktor:ktor-client-android:2.3.12")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-
-    // 3. Lifecycle & UI
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.0")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.0")
+    
+    implementation("io.ktor:ktor-client-android:2.3.12")
+    implementation("io.ktor:ktor-client-core:2.3.12")
+    
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
