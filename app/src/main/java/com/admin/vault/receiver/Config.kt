@@ -1,7 +1,7 @@
 package com.admin.vault.receiver
 
 object Config {
-    // TODO: Replace with your actual Supabase URL and Key
+    // Apni asli Supabase URL aur Key yahan daalo
     const val SUPABASE_URL = "https://vybofmppxvvulmyrhiwc.supabase.co"
-    const val SUPABASE_KEY = ""
+    const val SUPABASE_KEY = "sb_publishable_i_E1YdyXIxckDuq6xv8myw_gGZgyrUZ"
 }
