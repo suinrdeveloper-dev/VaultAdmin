@@ -1,18 +1,5 @@
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories {
-        google()
-        mavenCentral()
-        maven { url 'https://jitpack.io' } // Jitpack aksar libraries ke liye zaruri hota hai
-    }
-}
+# Enable AndroidX support (REQUIRED)
+android.useAndroidX=true
 
-rootProject.name = "Vault Admin"
-include ':app'
+# Enable Jetifier to migrate legacy third-party libs to AndroidX (HIGHLY RECOMMENDED)
+android.enableJetifier=true
